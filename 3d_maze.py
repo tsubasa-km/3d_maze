@@ -2,89 +2,179 @@ import pygame as pg
 from pygame.math import Vector2
 from abc import ABC, abstractmethod
 from typing import Type
-from dataclasses import dataclass
+from enum import Enum,auto
+from dataclasses import dataclass,field
 import math
 import sys
 
 
+class Tag(Enum):
+    """当たり判定のタググループ"""
+    PLAYER = auto()
+    WALL = auto()
+    RAY = auto()
+
+
+class ColliderType(Enum):
+    """当たり判定の形状"""
+    CIRCLE = auto()
+    LINE = auto()
+
+
+
 @dataclass
-class CollisionData:
+class CollidedTarget:
+    collider: Type["Collider"] = None
+    point: Vector2 = None
+
+
+@dataclass
+class CollisionDTO:
     """衝突判定時のデータ"""
     is_collided: bool
-    collided_target: Type["Collider"] = None
-    colilsion_point: Vector2 = None
+    targets: list[CollidedTarget] = field(default_factory=list,init=False)
 
+    def add_collided_target(self,collided_target:Type["Collider"],collided_point:Vector2):
+        if self.is_collided:
+            self.targets.append(CollidedTarget(collided_target,collided_point))
+
+    def join(self,other:"CollisionDTO"):
+        self.is_collided |= other.is_collided
+        self.targets += other.targets
 
 class Collider(ABC):
     # タグごとにコライダーを管理
-    _colliders: dict[str, list[Type["Collider"]]] = {}
-
-    def _add_collider(self, tag: str):
-        """自身をCollider.collidersに追加"""
-        if not Collider._colliders.get(tag):
-            Collider._colliders[tag] = []
-        Collider._colliders[tag].append(self)
+    _colliders: dict[Tag, list[Type["Collider"]]] = {}
 
     @classmethod
-    def _get_collider_group(cls, tag: str):
+    def _get_collider_group(cls, tags: list[Tag])->list[type["Collider"]]:
         """タグに属するコライダーを取得"""
-        return cls._colliders.get(tag)
+        value = []
+        for tag in tags:
+            v = cls._colliders.get(tag)
+            if v == None:
+                continue
+            value += v
+        return value
+    
+    def __init__(self, tags: list[Tag], collider_type:ColliderType) -> None:
+        self.tags = tags
+        self.collider_type = collider_type
+        self._add_collider(tags)
 
-    def __init__(self, tag: str | tuple[str]) -> None:
-        self.tag = tag
-        if isinstance(tag, str):
-            self._add_collider(tag)
-        else:
-            for t in tag:
-                self._add_collider(t)
+    def _add_collider(self, tags: list[Tag]):
+        """自身をCollider.collidersに追加"""
+        for tag in tags:
+            if not Collider._colliders.get(tag):
+                Collider._colliders[tag] = []
+            Collider._colliders[tag].append(self)
+
+    def _collision_detection_circles_and_line(self, circle:"CircleCollider",line:"LineCollider")->CollisionDTO:
+        """円と線分の衝突検証"""
+        A = Vector2(*line.start)
+        B = Vector2(*line.end)
+        P = Vector2(circle.center)
+
+        lineAB = B - A
+        vecAP = P-A
+        vecBP = P-B
+
+        dotAX = lineAB.dot(vecAP) / lineAB.length()
+        crossPX = lineAB.cross(vecAP) / lineAB.length()
+
+        distance = abs(crossPX)
+        if dotAX < 0:
+            distance = vecAP.length()
+        elif dotAX > lineAB.length():
+            distance = vecBP.length()
+
+
+        if distance < circle.radius:
+            collided_target = circle if self is line else line
+            collided_point = lineAB.normalize()*dotAX + A
+            print(collided_point)
+            dto =  CollisionDTO(True)
+            dto.add_collided_target(collided_target,collided_point)
+            return dto
+        return CollisionDTO(False)
+    
+    def _collision_detection_line_and_line(self, Line1:"LineCollider",Line2:"LineCollider")->CollisionDTO:
+        """線分と線分の衝突検証"""
+        return CollisionDTO(False)
+
+    def _collision_detection_circles_and_circle(self, circle1:"CircleCollider",circle2:"CircleCollider")->CollisionDTO:
+        """円と円の衝突検証"""
+        return CollisionDTO(False)
 
     @abstractmethod
-    def update(self): ...
+    def update(self):
+        """毎フレームの処理"""
+        pass
 
     @abstractmethod
-    def detect_collision(self, targets_tag: list[str]) -> CollisionData:
+    def detect_collision(self, target_tag_list: list[Tag]) -> CollisionDTO:
         """衝突を検証する"""
+        pass
 
 
 class LineCollider(Collider):
-    def __init__(self, start: Vector2, end: Vector2, tag: str | tuple[str]) -> None:
-        super().__init__(tag)
+    def __init__(self, start: Vector2, end: Vector2, tags: tuple[Tag]) -> None:
+        super().__init__(tags,ColliderType.LINE)
         self.update(start, end)
 
     def update(self, start: Vector2, end: Vector2):
         self.start = start
         self.end = end
 
-    def detect_collision(self, targets_tag: list[str]) -> CollisionData:
-        return CollisionData(False)
-
+    def detect_collision(self, target_tag_list: list[Tag]) -> CollisionDTO:
+        targets = self._get_collider_group(target_tag_list)
+        value = CollisionDTO(False)
+        for target in targets:
+            v = CollisionDTO(False)
+            match (target.collider_type):
+                case ColliderType.CIRCLE:
+                    v = self._collision_detection_circles_and_line(target,self)
+                case ColliderType.LINE:
+                    v = self._collision_detection_line_and_line(self,target)
+            value.join(v)
+        return value
 
 class CircleCollider(Collider):
-    def __init__(self, center: Vector2, radius: int | float, tag: str | tuple[str]) -> None:
-        super().__init__(tag)
+    def __init__(self, center: Vector2, radius: int | float, tags: tuple[Tag]) -> None:
+        super().__init__(tags,ColliderType.CIRCLE)
         self.update(center, radius)
 
     def update(self, center: Vector2, radius: int | float):
         self.center = center
         self.radius = radius
 
-    def detect_collision(self, targets_tag: list[str]) -> CollisionData:
-        return CollisionData(False)
+    def detect_collision(self, target_tag_list: list[Tag]) -> CollisionDTO:
+        targets = self._get_collider_group(target_tag_list)
+        value = CollisionDTO(False)
+        for target in targets:
+            v = CollisionDTO(False)
+            match (target.collider_type):
+                case ColliderType.CIRCLE:
+                    v = self._collision_detection_circles_and_circle(target,self)
+                case ColliderType.LINE:
+                    v = self._collision_detection_circles_and_line(self,target)
+            value.join(v)
+        return value
 
 
 class Player:
     def __init__(self, pos: Vector2):
         self.pos = pos
-        self.radius = 5
+        self.radius = 20
         self.speed = 2
         self.direction = 0
         self.ray_controller = RayController(self.pos, self.direction)
-        self.collider = CircleCollider(self.pos, self.radius, "player")
+        self.collider = CircleCollider(self.pos, self.radius, [Tag.PLAYER])
 
     def update(self):
         """毎フレームの処理"""
         self.__move()
-        self.ray_controller.update(self.direction)
+        
 
     def draw(self):
         """毎フレームの描画処理"""
@@ -110,6 +200,15 @@ class Player:
             self.direction += self.speed
         if vec.length() > 0:
             self.pos += vec.normalize()*self.speed
+        
+        self.ray_controller.update(self.direction)
+        self.collider.update(self.pos,self.radius)
+        collision_dto = self.collider.detect_collision([Tag.WALL])
+        if collision_dto.is_collided:
+            for target in collision_dto.targets:
+                x = target.point - self.pos
+                self.pos += x.normalize()*(x.length() - self.radius)
+
 
         # 世界の外へいかないようにする処理
         if self.pos.x < 0:
@@ -129,7 +228,7 @@ class Ray:
         self.max_length = length
         self.length = length
         self.targets_tag = targets_tag
-        self.collider = LineCollider(self.origin, self.get_end_pos(), "ray")
+        self.collider = LineCollider(self.origin, self.get_end_pos(), [Tag.RAY])
 
     def get_end_pos(self) -> Vector2:
         return Vector2(
@@ -143,6 +242,7 @@ class Ray:
         self.direction = direction
         if origin:
             self.origin = origin
+        collision_dto = self.collider.detect_collision([Tag.WALL])
 
 
 class RayController:
@@ -160,7 +260,7 @@ class RayController:
         self.rays: list[Ray] = [
             Ray(self.origin,
                 direction-self.angle_deg/2 + self.ray_step * i,
-                self.ray_length, "wall")
+                self.ray_length, [Tag.WALL])
             for i in range(self.number_of_rays)
         ]
 
@@ -196,7 +296,15 @@ class RayController:
 
 class Wall:
     def __init__(self, start: Vector2, end: Vector2):
-        self.collider = LineCollider()
+        self.start = start
+        self.end = end
+        self.color = (255,255,255)
+        self.width = 2
+        self.collider = LineCollider(self.start,self.end,[Tag.WALL])
+    def update(self):
+        pass
+    def draw(self):
+        pg.draw.line(screen,self.color,self.start,self.end,self.width)
 
 
 pg.init()
@@ -211,15 +319,20 @@ FPS = 60
 screen = pg.display.set_mode(SCREEN_SIZE)
 clock = pg.time.Clock()
 player = Player(Vector2(MAP_SIZE[0]/2, MAP_SIZE[0]/2))
+walls = [
+    Wall((100, 100), (200, 500)),
+    Wall((100, 100), (500, 200)),
+    Wall((500, 200), (200, 500)),
+]
 
 
 def mainloop():
-    player.update()
     # 上視点
     screen.fill((100, 100, 100), pg.Rect(0, 0, *MAP_SIZE))
-    pg.draw.line(screen, (255, 255, 255), (100, 100), (200, 500))
-    pg.draw.line(screen, (255, 255, 255), (100, 100), (500, 200))
-    pg.draw.line(screen, (255, 255, 255), (500, 200), (200, 500))
+    for wall in walls:
+        wall.update()
+        wall.draw()
+    player.update()
     player.draw()
     # 一人称視点
     screen.fill((200, 200, 200), pg.Rect(
