@@ -92,7 +92,6 @@ class Collider(ABC):
         if distance < circle.radius:
             collided_target = circle if self is line else line
             collided_point = lineAB.normalize()*dotAX + A
-            print(collided_point)
             dto =  CollisionDTO(True)
             dto.add_collided_target(collided_target,collided_point)
             return dto
@@ -165,7 +164,7 @@ class CircleCollider(Collider):
 class Player:
     def __init__(self, pos: Vector2):
         self.pos = pos
-        self.radius = 20
+        self.radius = 5
         self.speed = 2
         self.direction = 0
         self.ray_controller = RayController(self.pos, self.direction)
