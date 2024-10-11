@@ -26,33 +26,50 @@ class Collider(ABC):
         Collider._colliders[tag].append(self)
 
     @classmethod
-    def _get_collider(cls,tag:str):
-        return cls._colliders[tag]
+    def _get_collider_group(cls, tag: str):
+        """タグに属するコライダーを取得"""
+        return cls._colliders.get(tag)
+
+    def __init__(self, tag: str | tuple[str]) -> None:
+        self.tag = tag
+        if isinstance(tag, str):
+            self._add_collider(tag)
+        else:
+            for t in tag:
+                self._add_collider(t)
 
     @abstractmethod
-    def __init__(self) -> None: ...
+    def update(self): ...
 
     @abstractmethod
-    def detect_collision(self) -> CollisionData: ...
+    def detect_collision(self, targets_tag: list[str]) -> CollisionData:
+        """衝突を検証する"""
 
 
 class LineCollider(Collider):
-    def __init__(self, start, end, tag: str) -> None:
+    def __init__(self, start: Vector2, end: Vector2, tag: str | tuple[str]) -> None:
+        super().__init__(tag)
+        self.update(start, end)
+
+    def update(self, start: Vector2, end: Vector2):
         self.start = start
         self.end = end
-        self.tag = tag
-        self._add_collider(tag)
 
     def detect_collision(self, targets_tag: list[str]) -> CollisionData:
-        return CollisionData()
+        return CollisionData(False)
 
 
 class CircleCollider(Collider):
-    def __init__(self) -> None:
-        pass
+    def __init__(self, center: Vector2, radius: int | float, tag: str | tuple[str]) -> None:
+        super().__init__(tag)
+        self.update(center, radius)
 
-    def detect_collision(self) -> CollisionData:
-        pass
+    def update(self, center: Vector2, radius: int | float):
+        self.center = center
+        self.radius = radius
+
+    def detect_collision(self, targets_tag: list[str]) -> CollisionData:
+        return CollisionData(False)
 
 
 class Player:
@@ -62,7 +79,7 @@ class Player:
         self.speed = 2
         self.direction = 0
         self.ray_controller = RayController(self.pos, self.direction)
-        self.collider = CircleCollider()
+        self.collider = CircleCollider(self.pos, self.radius, "player")
 
     def update(self):
         """毎フレームの処理"""
@@ -112,7 +129,15 @@ class Ray:
         self.max_length = length
         self.length = length
         self.targets_tag = targets_tag
-        self.collider = LineCollider()
+        self.collider = LineCollider(self.origin, self.get_end_pos(), "ray")
+
+    def get_end_pos(self) -> Vector2:
+        return Vector2(
+            self.origin.x +
+            math.cos(math.radians(self.direction))*self.length,
+            self.origin.y +
+            math.sin(math.radians(self.direction))*self.length
+        )
 
     def update(self, direction: int | float, origin: Vector2 | None = None):
         self.direction = direction
@@ -135,7 +160,7 @@ class RayController:
         self.rays: list[Ray] = [
             Ray(self.origin,
                 direction-self.angle_deg/2 + self.ray_step * i,
-                self.ray_length)
+                self.ray_length, "wall")
             for i in range(self.number_of_rays)
         ]
 
@@ -146,12 +171,7 @@ class RayController:
 
     def draw(self):
         for ray in self.rays:
-            pg.draw.line(screen, (255, 255, 0), self.origin, (
-                self.origin.x +
-                math.cos(math.radians(ray.direction))*ray.length,
-                self.origin.y +
-                math.sin(math.radians(ray.direction))*ray.length,
-            ))
+            pg.draw.line(screen, (255, 255, 0), self.origin, ray.get_end_pos())
         self.__draw_direction()
 
     def __draw_direction(self):
