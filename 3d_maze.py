@@ -1,7 +1,7 @@
 import pygame as pg
 from pygame.math import Vector2
-from abc import ABC
-from typing import Type, Union
+from abc import ABC, abstractmethod
+from typing import Type
 from dataclasses import dataclass
 import math
 import sys
@@ -16,9 +16,23 @@ class CollisionData:
 
 
 class Collider(ABC):
-    colliders: dict[str, list["Collider"]] = {}
+    # タグごとにコライダーを管理
+    _colliders: dict[str, list[Type["Collider"]]] = {}
 
+    def _add_collider(self, tag: str):
+        """自身をCollider.collidersに追加"""
+        if not Collider._colliders.get(tag):
+            Collider._colliders[tag] = []
+        Collider._colliders[tag].append(self)
+
+    @classmethod
+    def _get_collider(cls,tag:str):
+        return cls._colliders[tag]
+
+    @abstractmethod
     def __init__(self) -> None: ...
+
+    @abstractmethod
     def detect_collision(self) -> CollisionData: ...
 
 
@@ -27,6 +41,7 @@ class LineCollider(Collider):
         self.start = start
         self.end = end
         self.tag = tag
+        self._add_collider(tag)
 
     def detect_collision(self, targets_tag: list[str]) -> CollisionData:
         return CollisionData()
@@ -40,7 +55,6 @@ class CircleCollider(Collider):
         pass
 
 
-# プレイヤー
 class Player:
     def __init__(self, pos: Vector2):
         self.pos = pos
