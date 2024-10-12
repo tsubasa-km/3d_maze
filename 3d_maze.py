@@ -99,10 +99,36 @@ class Collider(ABC):
     
     def _collision_detection_line_and_line(self, Line1:"LineCollider",Line2:"LineCollider")->CollisionDTO:
         """線分と線分の衝突検証"""
+        A = Line1.start
+        B = Line1.end
+        C = Line2.start
+        D = Line2.end
+
+        deno = (B-A).cross(D-C)
+        if deno == 0:
+            return CollisionDTO(False)
+
+        s = (C-A).cross(D-C) / deno
+        t = (B-A).cross(A-C) / deno
+        if s >= 0 and s <= 1 and t >= 0 and t <= 1:
+            collided_target = Line1 if self is Line2 else Line2
+            collided_point = A + (B-A)*s
+            dto =  CollisionDTO(True)
+            dto.add_collided_target(collided_target,collided_point)
+            return dto
         return CollisionDTO(False)
 
     def _collision_detection_circles_and_circle(self, circle1:"CircleCollider",circle2:"CircleCollider")->CollisionDTO:
         """円と円の衝突検証"""
+        C1,C2 = circle1.center,circle2.center
+        r1,r2 = circle1.radius,circle2.radius
+        vecC1C2 = C2 - C1
+        if vecC1C2.length() < r1+r2:
+            collided_target = circle1 if self is circle2 else circle2
+            collided_point = vecC1C2.normalize()*vecC1C2.length()/2
+            dto = CollisionDTO(True)
+            dto.add_collided_target(collided_target,collided_point)
+            return
         return CollisionDTO(False)
 
     @abstractmethod
@@ -228,6 +254,7 @@ class Ray:
         self.length = length
         self.targets_tag = targets_tag
         self.collider = LineCollider(self.origin, self.get_end_pos(), [Tag.RAY])
+        self.collision_dto:CollisionDTO = CollisionDTO(False)
 
     def get_end_pos(self) -> Vector2:
         return Vector2(
@@ -239,9 +266,17 @@ class Ray:
 
     def update(self, direction: int | float, origin: Vector2 | None = None):
         self.direction = direction
+        self.length = self.max_length
         if origin:
             self.origin = origin
-        collision_dto = self.collider.detect_collision([Tag.WALL])
+        self.collider.update(self.origin, self.get_end_pos())
+        self.collision_dto = self.collider.detect_collision([Tag.WALL])
+        for i,target in enumerate(self.collision_dto.targets):
+            new_length = (target.point - self.origin).length()
+            if self.length > new_length:
+                self.length = new_length
+            else:
+                del self.collision_dto.targets[i]
 
 
 class RayController:
@@ -249,7 +284,7 @@ class RayController:
         self.origin = origin
         self.center_direction = direction
         self.angle_deg = 90
-        self.number_of_rays = 100
+        self.number_of_rays = 10
         self.ray_step = self.angle_deg / (self.number_of_rays-1)
         self.ray_length = 200
         self.__set_direction(direction)
@@ -271,6 +306,8 @@ class RayController:
     def draw(self):
         for ray in self.rays:
             pg.draw.line(screen, (255, 255, 0), self.origin, ray.get_end_pos())
+            for target in ray.collision_dto.targets:
+                pg.draw.circle(screen,(255,0,0),target.point,2)
         self.__draw_direction()
 
     def __draw_direction(self):
@@ -319,9 +356,10 @@ screen = pg.display.set_mode(SCREEN_SIZE)
 clock = pg.time.Clock()
 player = Player(Vector2(MAP_SIZE[0]/2, MAP_SIZE[0]/2))
 walls = [
-    Wall((100, 100), (200, 500)),
-    Wall((100, 100), (500, 200)),
-    Wall((500, 200), (200, 500)),
+    Wall(Vector2(100, 100), Vector2(200, 500)),
+    Wall(Vector2(100, 100), Vector2(500, 200)),
+    Wall(Vector2(500, 200), Vector2(200, 500)),
+    Wall(Vector2(550, 250), Vector2(250, 550)),
 ]
 
 
