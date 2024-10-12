@@ -188,6 +188,7 @@ class CircleCollider(Collider):
 
 
 class Obj(ABC):
+    """画面に表示するオブジェクト"""
     @abstractmethod
     def __init__(self):
         pass
@@ -197,7 +198,7 @@ class Obj(ABC):
         """毎フレームの更新"""
     
     @abstractmethod
-    def draw(self):
+    def draw2d(self):
         """毎フレームの描画処理"""
 
 
@@ -212,15 +213,14 @@ class Player(Obj):
         self.collider = CircleCollider(self.pos, self.radius, [Tag.PLAYER])
 
     def update(self):
-        """毎フレームの処理"""
         self.__move()
-        
 
-    def draw(self):
-        """毎フレームの描画処理"""
-        self.ray_controller.draw()
-        # プレイヤー
+    def draw2d(self):
+        self.ray_controller.draw2d()
         pg.draw.circle(screen, (255, 255, 0), self.pos, self.radius)
+    
+    def draw3d(self):
+        pass
 
     def __move(self):
         """WASD移動"""
@@ -293,7 +293,7 @@ class Ray(Obj):
             else:
                 del self.collision_dto.targets[i]
     
-    def draw(self):
+    def draw2d(self):
         pg.draw.line(screen, (255, 255, 0), self.origin, self.get_end_pos())
         for target in self.collision_dto.targets:
             pg.draw.circle(screen,(255,0,0),target.point,2)
@@ -323,10 +323,10 @@ class RayController(Obj):
         for i, ray in enumerate(self.rays):
             ray.update(direction-self.angle_deg/2 + self.ray_step * i)
 
-    def draw(self):
+    def draw2d(self):
         for ray in self.rays:
-            ray.draw()
-        self.__draw_direction()
+            ray.draw2d()
+        # self.__draw_direction()
 
     def __draw_direction(self):
         """向いている方向を表示"""
@@ -357,13 +357,8 @@ class Wall(Obj):
         self.collider = LineCollider(self.start,self.end,[Tag.WALL])
     def update(self):
         pass
-    def draw(self):
+    def draw2d(self):
         pg.draw.line(screen,self.color,self.start,self.end,self.width)
-
-
-class Map:
-    def __init__(self):
-        pass
 
 
 pg.init()
@@ -391,9 +386,9 @@ def mainloop():
     screen.fill((100, 100, 100), pg.Rect(0, 0, *MAP_SIZE))
     for wall in walls:
         wall.update()
-        wall.draw()
+        wall.draw2d()
     player.update()
-    player.draw()
+    player.draw2d()
     # 一人称視点
     screen.fill((200, 200, 200), pg.Rect(
         MAP_SIZE[0], 0, SCREEN_SIZE[0], SCREEN_SIZE[1]))
