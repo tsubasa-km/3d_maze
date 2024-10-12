@@ -187,7 +187,22 @@ class CircleCollider(Collider):
         return value
 
 
-class Player:
+class Obj(ABC):
+    @abstractmethod
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    def update(self):
+        """毎フレームの更新"""
+    
+    @abstractmethod
+    def draw(self):
+        """毎フレームの描画処理"""
+
+
+
+class Player(Obj):
     def __init__(self, pos: Vector2):
         self.pos = pos
         self.radius = 5
@@ -246,7 +261,7 @@ class Player:
             self.pos.y = MAP_SIZE[1]
 
 
-class Ray:
+class Ray(Obj):
     def __init__(self, origin: Vector2, direction: int | float, length: int | float, targets_tag: tuple[str]):
         self.origin = origin
         self.direction = direction
@@ -277,9 +292,14 @@ class Ray:
                 self.length = new_length
             else:
                 del self.collision_dto.targets[i]
+    
+    def draw(self):
+        pg.draw.line(screen, (255, 255, 0), self.origin, self.get_end_pos())
+        for target in self.collision_dto.targets:
+            pg.draw.circle(screen,(255,0,0),target.point,2)
 
 
-class RayController:
+class RayController(Obj):
     def __init__(self, origin: Vector2, direction: int | float):
         self.origin = origin
         self.center_direction = direction
@@ -305,9 +325,7 @@ class RayController:
 
     def draw(self):
         for ray in self.rays:
-            pg.draw.line(screen, (255, 255, 0), self.origin, ray.get_end_pos())
-            for target in ray.collision_dto.targets:
-                pg.draw.circle(screen,(255,0,0),target.point,2)
+            ray.draw()
         self.__draw_direction()
 
     def __draw_direction(self):
@@ -330,7 +348,7 @@ class RayController:
         ), 2)
 
 
-class Wall:
+class Wall(Obj):
     def __init__(self, start: Vector2, end: Vector2):
         self.start = start
         self.end = end
@@ -341,6 +359,11 @@ class Wall:
         pass
     def draw(self):
         pg.draw.line(screen,self.color,self.start,self.end,self.width)
+
+
+class Map:
+    def __init__(self):
+        pass
 
 
 pg.init()
