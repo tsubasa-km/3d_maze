@@ -219,8 +219,19 @@ class Player(Obj):
         self.ray_controller.draw2d()
         pg.draw.circle(screen, (255, 255, 0), self.pos, self.radius)
     
-    def draw3d(self):
-        pass
+    def draw_fpv(self):
+        """1人称視点の描画"""
+        for i,ray in enumerate(self.ray_controller.rays):
+            if ray.collision_dto.is_collided:
+                raito = ray.length/ray.max_length
+                height = 500/(10*raito)
+                start = (MAP_SIZE[0]+i*(SCREEN_SIZE[0]-MAP_SIZE[0])/self.ray_controller.number_of_rays,
+                         SCREEN_SIZE[1]/2-height/2)
+                end = (start[0],SCREEN_SIZE[1]-start[1])
+                color = (255*(1-raito),)*3
+                print(raito,height,color)
+
+                pg.draw.line(screen,color,start,end,2)
 
     def __move(self):
         """WASD移動"""
@@ -303,8 +314,8 @@ class RayController(Obj):
     def __init__(self, origin: Vector2, direction: int | float):
         self.origin = origin
         self.center_direction = direction
-        self.angle_deg = 90
-        self.number_of_rays = 10
+        self.angle_deg = 60
+        self.number_of_rays = 200
         self.ray_step = self.angle_deg / (self.number_of_rays-1)
         self.ray_length = 200
         self.__set_direction(direction)
@@ -390,8 +401,9 @@ def mainloop():
     player.update()
     player.draw2d()
     # 一人称視点
-    screen.fill((200, 200, 200), pg.Rect(
+    screen.fill((0,0,0), pg.Rect(
         MAP_SIZE[0], 0, SCREEN_SIZE[0], SCREEN_SIZE[1]))
+    player.draw_fpv()
 
 
 while True:
