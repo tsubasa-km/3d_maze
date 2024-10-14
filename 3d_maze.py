@@ -229,7 +229,6 @@ class Player(Obj):
                          SCREEN_SIZE[1]/2-height/2)
                 end = (start[0],SCREEN_SIZE[1]-start[1])
                 color = (255*(1-raito),)*3
-                print(raito,height,color)
 
                 pg.draw.line(screen,color,start,end,2)
 
@@ -384,12 +383,22 @@ FPS = 60
 screen = pg.display.set_mode(SCREEN_SIZE)
 clock = pg.time.Clock()
 player = Player(Vector2(MAP_SIZE[0]/2, MAP_SIZE[0]/2))
+
+## 四角
 walls = [
-    Wall(Vector2(100, 100), Vector2(200, 500)),
-    Wall(Vector2(100, 100), Vector2(500, 200)),
-    Wall(Vector2(500, 200), Vector2(200, 500)),
-    Wall(Vector2(550, 250), Vector2(250, 550)),
+    Wall(Vector2(100, 100), Vector2(100, 500)),
+    Wall(Vector2(100, 500), Vector2(500, 500)),
+    Wall(Vector2(500, 500), Vector2(500, 100)),
+    Wall(Vector2(500, 100), Vector2(100, 100)),
 ]
+
+## 三角
+# walls = [
+#     Wall(Vector2(100, 100), Vector2(200, 500)),
+#     Wall(Vector2(100, 100), Vector2(500, 200)),
+#     Wall(Vector2(500, 200), Vector2(200, 500)),
+#     Wall(Vector2(550, 250), Vector2(250, 550)),
+# ]
 
 
 def mainloop():
