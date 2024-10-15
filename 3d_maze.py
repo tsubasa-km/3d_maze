@@ -1,7 +1,7 @@
 import pygame as pg
 from pygame.math import Vector2
 from abc import ABC, abstractmethod
-from typing import Type
+from typing import Type, Literal
 from enum import Enum, auto
 from dataclasses import dataclass, field
 import math
@@ -212,7 +212,7 @@ class Player(Obj):
         self.pos = pos
         self.prev_pos = pos.copy()
         self.radius = 5
-        self.speed = 2
+        self.speed = 5
         self.direction = 0
         self.ray_controller = RayController(self.pos, self.direction)
         self.collider = CircleCollider(
@@ -222,6 +222,10 @@ class Player(Obj):
     def add_force(self, force):
         self.prev_pos = self.pos.copy()
         self.pos += force
+
+    def back_to(self, to: Vector2):
+        """1フレーム前の位置を変更しないで移動する。"""
+        self.pos += to - self.pos
 
     def update(self):
         self.__move()
@@ -236,7 +240,10 @@ class Player(Obj):
         for i, ray in enumerate(self.ray_controller.rays):
             if ray.collision_dto.is_collided:
                 raito = ray.length/ray.max_length
-                height = 500/(10*raito)
+                if raito != 0:
+                    height = min(600, 500/(10*raito))
+                else:
+                    height = 600
                 start = (MAP_SIZE[0]+i*(SCREEN_SIZE[0]-MAP_SIZE[0])/self.ray_controller.number_of_rays,
                          SCREEN_SIZE[1]/2-height/2)
                 end = (start[0], SCREEN_SIZE[1]-start[1])
@@ -245,7 +252,7 @@ class Player(Obj):
                 pg.draw.line(screen, color, start, end, 2)
 
     def __move(self):
-        """WASD移動"""
+        """WASD移動 QE回転"""
         force = Vector2(0)
         pressed = pg.key.get_pressed()
         if pressed[pg.K_w]:
@@ -257,20 +264,31 @@ class Player(Obj):
         if pressed[pg.K_d]:
             force.x += 1
         if pressed[pg.K_q]:
-            self.direction -= self.speed
+            self.direction -= 2
         if pressed[pg.K_e]:
-            self.direction += self.speed
+            self.direction += 2
         if force.length() > 0:
             force.rotate_ip(self.direction)
             self.add_force(force.normalize()*self.speed)
 
     def __detect_collision(self):
         self.collider.update(self.pos, self.radius)
+        # 壁をすり抜けたとき
+        movement_vec = Ray(self.prev_pos, Vector2(0).angle_to(
+            self.pos-self.prev_pos)+90, (self.pos-self.prev_pos).length(), [Tag.WALL]).detect_collision()
+        dto = movement_vec.collision_dto
+        if dto.is_collided:
+            for target in dto.targets:
+                self.back_to(target.point - (self.pos -
+                             self.prev_pos).normalize()*self.radius)
+
         # 壁に当たった時
         collision_dto = self.collider.detect_collision([Tag.WALL])
         if collision_dto.is_collided:
             for target in collision_dto.targets:
                 x = target.point - self.pos
+                if x.length() == 0:
+                    x += self.prev_pos.normalize()*0.01
                 self.add_force(x.normalize()*(x.length() - self.radius))
         self.ray_controller.update(self.direction)
 
@@ -286,12 +304,12 @@ class Player(Obj):
 
 
 class Ray(Obj):
-    def __init__(self, origin: Vector2, direction: int | float, length: int | float, targets_tag: tuple[str]):
+    def __init__(self, origin: Vector2, direction: int | float, length: int | float, targets_tags: tuple[str]):
         self.origin = origin
         self.direction = direction
         self.max_length = length
         self.length = length
-        self.targets_tag = targets_tag
+        self.targets_tags = targets_tags
         self.collider = LineCollider(
             self, self.origin, self.get_end_pos(), [Tag.RAY])
         self.collision_dto: CollisionDTO = CollisionDTO(False)
@@ -310,14 +328,22 @@ class Ray(Obj):
         self.length = self.max_length
         if origin:
             self.origin = origin
+        self.detect_collision()
+
+    def detect_collision(self):
+        """衝突判定"""
         self.collider.update(self.origin, self.get_end_pos())
-        self.collision_dto = self.collider.detect_collision([Tag.WALL])
-        for i, target in enumerate(self.collision_dto.targets):
+        self.collision_dto = self.collider.detect_collision(self.targets_tags)
+        for target in self.collision_dto.targets:
             new_length = (target.point - self.origin).length()
-            if self.length > new_length:
+            if self.length >= new_length:  # より距離の近いターゲット
                 self.length = new_length
-            else:
-                del self.collision_dto.targets[i]
+        new_targets = []
+        for target in self.collision_dto.targets:
+            if self.length >= (target.point - self.origin).length():
+                new_targets.append(target)
+        self.collision_dto.targets = new_targets
+        return self
 
     def draw2d(self):
         pg.draw.line(screen, self.color, self.origin, self.get_end_pos())
@@ -332,7 +358,7 @@ class RayController:
         self.angle_deg = 60
         self.number_of_rays = 200
         self.ray_step = self.angle_deg / (self.number_of_rays-1)
-        self.ray_length = 200
+        self.ray_length = 300
         self.__set_direction(direction)
 
     def __set_direction(self, direction: int | float):
@@ -352,7 +378,7 @@ class RayController:
     def draw2d(self):
         for ray in self.rays:
             ray.draw2d()
-        self.__draw_direction()
+        # self.__draw_direction()
 
     def __draw_direction(self):
         """向いている方向を表示"""
@@ -391,6 +417,33 @@ class Wall(Obj):
         pg.draw.line(screen, self.color, self.start, self.end, self.width)
 
 
+class Map:
+    def __init__(self, matrix: list[list[Literal["#", " ", "."]]]) -> None:
+        block_size = (MAP_SIZE[0]//len(matrix[0]), MAP_SIZE[1]//len(matrix))
+        self.walls = []
+        for _y, row in enumerate(matrix):
+            for _x, b in enumerate(row):
+                if b != "#":
+                    continue
+                x = block_size[0] * _x
+                y = block_size[1] * _y
+                block = []
+                if _y-1 > 0 and matrix[_y-1][_x] != "#":
+                    block.append(Wall(Vector2(x, y),
+                                      Vector2(x + block_size[0], y)))
+                if _y+1 < len(matrix) and matrix[_y+1][_x] != "#":
+                    block.append(Wall(Vector2(x, y + block_size[1]),
+                                      Vector2(x + block_size[0], y + block_size[1])))
+                if _x-1 > 0 and matrix[_y][_x-1] != "#":
+                    block.append(Wall(Vector2(x, y),
+                                      Vector2(x, y + block_size[1])))
+                if _x+1 < len(matrix[_y]) and matrix[_y][_x+1] != "#":
+                    block.append(Wall(Vector2(x + block_size[0], y),
+                                      Vector2(x + block_size[0], y + block_size[1])))
+
+                self.walls += block
+
+
 pg.init()
 
 # 定数宣言
@@ -404,28 +457,20 @@ screen = pg.display.set_mode(SCREEN_SIZE)
 clock = pg.time.Clock()
 player = Player(Vector2(MAP_SIZE[0]/2, MAP_SIZE[0]/2))
 
-# 四角
-walls = [
-    Wall(Vector2(100, 100), Vector2(100, 500)),
-    Wall(Vector2(100, 500), Vector2(500, 500)),
-    Wall(Vector2(500, 500), Vector2(500, 100)),
-    Wall(Vector2(500, 100), Vector2(100, 100)),
-    Wall(Vector2(400, 500), Vector2(400, 400)),
-]
-
-# 三角
-# walls = [
-#     Wall(Vector2(100, 100), Vector2(200, 500)),
-#     Wall(Vector2(100, 100), Vector2(500, 200)),
-#     Wall(Vector2(500, 200), Vector2(200, 500)),
-#     Wall(Vector2(550, 250), Vector2(250, 550)),
-# ]
+map_2d = Map([
+    ["#", "#", "#", "#", "#", "#"],
+    ["#", " ", "#", " ", "#", "#"],
+    ["#", " ", " ", " ", " ", "#"],
+    ["#", " ", "#", "#", " ", "#"],
+    ["#", " ", " ", "#", " ", "#"],
+    ["#", "#", "#", "#", "#", "#"],
+])
 
 
 def mainloop():
     # 上視点
     screen.fill((100, 100, 100), pg.Rect(0, 0, *MAP_SIZE))
-    for wall in walls:
+    for wall in map_2d.walls:
         wall.update()
         wall.draw2d()
     player.update()
