@@ -225,6 +225,7 @@ class Player(Obj):
 
     def update(self):
         self.__move()
+        self.__detect_collision()
 
     def draw2d(self):
         self.ray_controller.draw2d()
@@ -263,13 +264,15 @@ class Player(Obj):
             force.rotate_ip(self.direction)
             self.add_force(force.normalize()*self.speed)
 
-        self.ray_controller.update(self.direction)
+    def __detect_collision(self):
         self.collider.update(self.pos, self.radius)
+        # 壁に当たった時
         collision_dto = self.collider.detect_collision([Tag.WALL])
         if collision_dto.is_collided:
             for target in collision_dto.targets:
                 x = target.point - self.pos
                 self.add_force(x.normalize()*(x.length() - self.radius))
+        self.ray_controller.update(self.direction)
 
         # 世界の外へいかないようにする処理
         if self.pos.x < 0:
