@@ -252,7 +252,6 @@ class Player(Obj):
         if pressed[pg.K_e]:
             self.direction += self.speed
         if force.length() > 0:
-            print(self.direction)
             force.rotate_ip(self.direction)
             self.pos += force.normalize()*self.speed
 
@@ -358,8 +357,10 @@ class RayController(Obj):
             math.sin(math.radians(self.center_direction+self.angle_deg/2-90))*40,
         ), 2)
         pg.draw.line(screen, (255, 0, 0), self.origin, (
-            self.origin.x + math.cos(math.radians(self.center_direction-90))*20,
-            self.origin.y + math.sin(math.radians(self.center_direction-90))*20,
+            self.origin.x +
+            math.cos(math.radians(self.center_direction-90))*20,
+            self.origin.y +
+            math.sin(math.radians(self.center_direction-90))*20,
         ), 2)
 
 
