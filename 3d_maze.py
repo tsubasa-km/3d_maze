@@ -237,22 +237,24 @@ class Player(Obj):
 
     def __move(self):
         """WASD移動"""
-        vec = Vector2(0)
+        force = Vector2(0)
         pressed = pg.key.get_pressed()
         if pressed[pg.K_w]:
-            vec.y -= 1
+            force.y -= 1
         if pressed[pg.K_a]:
-            vec.x -= 1
+            force.x -= 1
         if pressed[pg.K_s]:
-            vec.y += 1
+            force.y += 1
         if pressed[pg.K_d]:
-            vec.x += 1
+            force.x += 1
         if pressed[pg.K_q]:
             self.direction -= self.speed
         if pressed[pg.K_e]:
             self.direction += self.speed
-        if vec.length() > 0:
-            self.pos += vec.normalize()*self.speed
+        if force.length() > 0:
+            print(self.direction)
+            force.rotate_ip(self.direction)
+            self.pos += force.normalize()*self.speed
 
         self.ray_controller.update(self.direction)
         self.collider.update(self.pos, self.radius)
@@ -287,9 +289,9 @@ class Ray(Obj):
     def get_end_pos(self) -> Vector2:
         return Vector2(
             self.origin.x +
-            math.cos(math.radians(self.direction))*self.length,
+            math.cos(math.radians(self.direction-90))*self.length,
             self.origin.y +
-            math.sin(math.radians(self.direction))*self.length
+            math.sin(math.radians(self.direction-90))*self.length
         )
 
     def update(self, direction: int | float, origin: Vector2 | None = None):
@@ -339,25 +341,25 @@ class RayController(Obj):
     def draw2d(self):
         for ray in self.rays:
             ray.draw2d()
-        # self.__draw_direction()
+        self.__draw_direction()
 
     def __draw_direction(self):
         """向いている方向を表示"""
         pg.draw.line(screen, (255, 0, 0), self.origin, (
             self.origin.x +
-            math.cos(math.radians(self.center_direction-self.angle_deg/2))*40,
+            math.cos(math.radians(self.center_direction-self.angle_deg/2-90))*40,
             self.origin.y +
-            math.sin(math.radians(self.center_direction-self.angle_deg/2))*40,
+            math.sin(math.radians(self.center_direction-self.angle_deg/2-90))*40,
         ), 2)
         pg.draw.line(screen, (255, 0, 0), self.origin, (
             self.origin.x +
-            math.cos(math.radians(self.center_direction+self.angle_deg/2))*40,
+            math.cos(math.radians(self.center_direction+self.angle_deg/2-90))*40,
             self.origin.y +
-            math.sin(math.radians(self.center_direction+self.angle_deg/2))*40,
+            math.sin(math.radians(self.center_direction+self.angle_deg/2-90))*40,
         ), 2)
         pg.draw.line(screen, (255, 0, 0), self.origin, (
-            self.origin.x + math.cos(math.radians(self.center_direction))*20,
-            self.origin.y + math.sin(math.radians(self.center_direction))*20,
+            self.origin.x + math.cos(math.radians(self.center_direction-90))*20,
+            self.origin.y + math.sin(math.radians(self.center_direction-90))*20,
         ), 2)
 
 
