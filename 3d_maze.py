@@ -420,7 +420,7 @@ class Wall(Obj):
 class Map:
     def __init__(self, matrix: list[list[Literal["#", " ", "."]]]) -> None:
         block_size = (MAP_SIZE[0]//len(matrix[0]), MAP_SIZE[1]//len(matrix))
-        self.walls = []
+        self.walls: list[Wall] = []
         for _y, row in enumerate(matrix):
             for _x, b in enumerate(row):
                 if b != "#":
@@ -440,8 +440,12 @@ class Map:
                 if _x+1 < len(matrix[_y]) and matrix[_y][_x+1] != "#":
                     block.append(Wall(Vector2(x + block_size[0], y),
                                       Vector2(x + block_size[0], y + block_size[1])))
-
                 self.walls += block
+
+    def draw(self):
+        for wall in self.walls:
+            # wall.update()
+            wall.draw2d()
 
 
 pg.init()
@@ -470,9 +474,7 @@ map_2d = Map([
 def mainloop():
     # 上視点
     screen.fill((100, 100, 100), pg.Rect(0, 0, *MAP_SIZE))
-    for wall in map_2d.walls:
-        wall.update()
-        wall.draw2d()
+    map_2d.draw()
     player.update()
     player.draw2d()
     # 一人称視点
