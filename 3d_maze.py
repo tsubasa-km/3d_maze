@@ -1,11 +1,14 @@
 import pygame as pg
 from pygame.math import Vector2
 from abc import ABC, abstractmethod
-from typing import Type, Literal
+from typing import Type, Literal, overload
 from enum import Enum, auto
 from dataclasses import dataclass, field
 import math
 import sys
+from random import randint, choice, shuffle
+from copy import deepcopy
+from pprint import pprint
 
 
 class Tag(Enum):
@@ -19,6 +22,7 @@ class ColliderType(Enum):
     """当たり判定の形状"""
     CIRCLE = auto()
     LINE = auto()
+    BOX = auto()
 
 
 @dataclass
@@ -68,11 +72,18 @@ class Collider(ABC):
         """衝突を検証する"""
         pass
 
-    def __init__(self, parent_obj: "Obj", tags: list[Tag], collider_type: ColliderType) -> None:
+    def __init__(self, parent_obj: "Obj", tags: list[Tag], collider_type: ColliderType, is_temporary=False) -> None:
         self.parent_obj = parent_obj
         self.tags = tags
         self.collider_type = collider_type
-        self._add_collider(tags)
+        if not is_temporary:
+            self._add_collider(tags)
+
+    def __del__(self):
+        for i, c in enumerate(self._colliders):
+            if c is self:
+                self._colliders[i]
+                break
 
     def _add_collider(self, tags: list[Tag]):
         """自身をCollider.collidersに追加"""
@@ -81,11 +92,19 @@ class Collider(ABC):
                 Collider._colliders[tag] = []
             Collider._colliders[tag].append(self)
 
-    def _collision_detection_circles_and_line(self, circle: "CircleCollider", line: "LineCollider") -> CollisionDTO:
+    def get_aabb(self) -> "BoxCollider":
+        """オブジェクトの外接AABBをBoxCollider形式で返す"""
+        pass
+
+    def _aabb_collision(self, other: Type["Collider"]):
+        return self._collision_detection_box_and_box(
+            self.get_aabb(), other.get_aabb()).is_collided
+
+    def _collision_detection_circle_and_line(self, circle: "CircleCollider", line: "LineCollider") -> CollisionDTO:
         """円と線分の衝突検証"""
         A = Vector2(*line.start)
         B = Vector2(*line.end)
-        P = Vector2(circle.center)
+        P = circle.center
 
         lineAB = B - A
         vecAP = P-A
@@ -129,7 +148,7 @@ class Collider(ABC):
             return dto
         return CollisionDTO(False)
 
-    def _collision_detection_circles_and_circle(self, circle1: "CircleCollider", circle2: "CircleCollider") -> CollisionDTO:
+    def _collision_detection_circle_and_circle(self, circle1: "CircleCollider", circle2: "CircleCollider") -> CollisionDTO:
         """円と円の衝突検証"""
         C1, C2 = circle1.center, circle2.center
         r1, r2 = circle1.radius, circle2.radius
@@ -142,51 +161,179 @@ class Collider(ABC):
             return
         return CollisionDTO(False)
 
+    def _collision_detection_circle_and_box(self, circle: "CircleCollider", box: "BoxCollider"):
+        def distance_squared(point1, point2):
+            return (point1.x - point2.x) ** 2 + (point1.y - point2.y) ** 2
+        collided_point = None
+        center_in_box_x = box.pos.x - \
+            circle.radius <= circle.center.x <= box.pos.x + box.width + circle.radius
+        center_in_box_y = box.pos.y - \
+            circle.radius <= circle.center.y <= box.pos.y + box.height + circle.radius
+        if not (center_in_box_x and center_in_box_y):
+            return CollisionDTO(False)
+        corners = [
+            Vector2(box.pos.x, box.pos.y),
+            Vector2(box.pos.x + box.width, box.pos.y),
+            Vector2(box.pos.x + box.width, box.pos.y + box.height),
+            Vector2(box.pos.x, box.pos.y + box.height)
+        ]
+        for corner in corners:
+            if distance_squared(corner, circle.center) < circle.radius ** 2:
+                collided_point = corner
+                dto = CollisionDTO(True)
+                dto.add_collided_target(circle, collided_point)
+                return dto
+        if box.pos.x <= circle.center.x <= box.pos.x + box.width:
+            if abs(circle.center.y - box.pos.y) < circle.radius:
+                collided_point = Vector2(circle.center.x, box.pos.y)
+            elif abs(circle.center.y - (box.pos.y + box.height)) < circle.radius:
+                collided_point = Vector2(
+                    circle.center.x, box.pos.y + box.height)
+        elif box.pos.y <= circle.center.y <= box.pos.y + box.height:
+            if abs(circle.center.x - box.pos.x) < circle.radius:
+                collided_point = Vector2(box.pos.x, circle.center.y)
+            elif abs(circle.center.x - (box.pos.x + box.width)) < circle.radius:
+                collided_point = Vector2(
+                    box.pos.x + box.width, circle.center.y)
+        if collided_point is not None:
+            dto = CollisionDTO(True)
+            dto.add_collided_target(circle, collided_point)
+            return dto
+
+        return CollisionDTO(False)
+
+    def _collision_detection_line_and_box(self, line: "LineCollider", box: "BoxCollider"):
+        box_lines = [
+            (Vector2(box.pos.x, box.pos.y), Vector2(
+                box.pos.x, box.pos.y + box.height)),  # 左辺
+            (Vector2(box.pos.x + box.width, box.pos.y),
+             Vector2(box.pos.x + box.width, box.pos.y + box.height)),  # 右辺
+            (Vector2(box.pos.x, box.pos.y), Vector2(
+                box.pos.x + box.width, box.pos.y)),  # 上辺
+            (Vector2(box.pos.x, box.pos.y + box.height),
+             Vector2(box.pos.x + box.width, box.pos.y + box.height))  # 下辺
+        ]
+
+        box_line_colliders = [
+            LineCollider(box.parent_obj, *line, box.tags, is_temporary=True) for line in box_lines
+        ]
+        value = CollisionDTO(False)
+        for side_line in box_line_colliders:
+            dto = side_line._collision_detection_line_and_line(side_line, line)
+            value.join(dto)
+        return value
+
+    def _collision_detection_box_and_box(self, box1: "BoxCollider", box2: "BoxCollider"):
+        if (box1.pos.x + box1.width <= box2.pos.x or box1.pos.x >= box2.pos.x + box2.width or
+                box1.pos.y + box1.height <= box2.pos.y or box1.pos.y >= box2.pos.y + box2.height):
+            return CollisionDTO(False)
+        collided_point = Vector2(
+            (max(box1.pos.x, box2.pos.x) + min(box1.pos.x +
+             box1.width, box2.pos.x + box2.width)) / 2,
+            (max(box1.pos.y, box2.pos.y) + min(box1.pos.y +
+             box1.height, box2.pos.y + box2.height)) / 2
+        )
+        dto = CollisionDTO(True)
+        dto.add_collided_target(box2, collided_point)
+        return dto
+
 
 class LineCollider(Collider):
-    def __init__(self, parent_obj: "Obj", start: Vector2, end: Vector2, tags: tuple[Tag]) -> None:
-        super().__init__(parent_obj, tags, ColliderType.LINE)
+    def __init__(self, parent_obj: "Obj", start: Vector2, end: Vector2, tags: tuple[Tag], *args, **kwargs) -> None:
+        super().__init__(parent_obj, tags, ColliderType.LINE, *args, **kwargs)
         self.update(start, end)
 
     def update(self, start: Vector2, end: Vector2):
         self.start = start
         self.end = end
 
+    def get_aabb(self) -> "BoxCollider":
+        """線分の外接矩形をBoxColliderで取得"""
+        left = min(self.start.x, self.end.x)
+        top = min(self.start.y, self.end.y)
+        width = abs(self.end.x - self.start.x)
+        height = abs(self.end.y - self.start.y)
+        return BoxCollider(self.parent_obj, Vector2(left, top), width, height, self.tags, is_temporary=True)
+
     def detect_collision(self, target_tag_list: list[Tag]) -> CollisionDTO:
         targets = self._get_collider_group(target_tag_list)
         value = CollisionDTO(False)
-        for target in targets:
+        for target in filter(lambda t: self._aabb_collision(t), targets):
             v = CollisionDTO(False)
             match (target.collider_type):
                 case ColliderType.CIRCLE:
-                    v = self._collision_detection_circles_and_line(
+                    v = self._collision_detection_circle_and_line(
                         target, self)
                 case ColliderType.LINE:
                     v = self._collision_detection_line_and_line(self, target)
+                case ColliderType.BOX:
+                    v = self._collision_detection_line_and_box(self, target)
             value.join(v)
         return value
 
 
 class CircleCollider(Collider):
-    def __init__(self, parent_obj: "Obj", center: Vector2, radius: int | float, tags: tuple[Tag]) -> None:
-        super().__init__(parent_obj, tags, ColliderType.CIRCLE)
+    def __init__(self, parent_obj: "Obj", center: Vector2, radius: int | float, tags: tuple[Tag], *args, **kwargs) -> None:
+        super().__init__(parent_obj, tags, ColliderType.CIRCLE, *args, **kwargs)
         self.update(center, radius)
 
     def update(self, center: Vector2, radius: int | float):
         self.center = center
         self.radius = radius
 
+    def get_aabb(self) -> "BoxCollider":
+        """円の外接矩形をBoxColliderで取得"""
+        left = self.center.x - self.radius
+        top = self.center.y - self.radius
+        width = self.radius * 2
+        height = self.radius * 2
+        return BoxCollider(self.parent_obj, Vector2(left, top), width, height, self.tags, is_temporary=True)
+
     def detect_collision(self, target_tag_list: list[Tag]) -> CollisionDTO:
         targets = self._get_collider_group(target_tag_list)
         value = CollisionDTO(False)
-        for target in targets:
+        for target in filter(lambda t: self._aabb_collision(t), targets):
             v = CollisionDTO(False)
             match (target.collider_type):
                 case ColliderType.CIRCLE:
-                    v = self._collision_detection_circles_and_circle(
+                    v = self._collision_detection_circle_and_circle(
                         target, self)
                 case ColliderType.LINE:
-                    v = self._collision_detection_circles_and_line(
+                    v = self._collision_detection_circle_and_line(
+                        self, target)
+                case ColliderType.BOX:
+                    v = self._collision_detection_circle_and_box(self, target)
+            value.join(v)
+        return value
+
+
+class BoxCollider(Collider):
+    def __init__(self, parent_obj: "Obj", pos: Vector2, width: int | float, height: int | float, tags: tuple[Tag], *args, **kwargs) -> None:
+        super().__init__(parent_obj, tags, ColliderType.BOX, *args, **kwargs)
+        self.update(pos, width, height)
+
+    def update(self, pos: Vector2, width: int | float, height: int | float):
+        self.pos = pos
+        self.width = width
+        self.height = height
+
+    def get_aabb(self) -> "BoxCollider":
+        return self
+
+    def detect_collision(self, target_tag_list: list[Tag]) -> CollisionDTO:
+        targets = self._get_collider_group(target_tag_list)
+        value = CollisionDTO(False)
+        for target in filter(lambda t: self._aabb_collision(t), targets):
+            v = CollisionDTO(False)
+            match (target.collider_type):
+                case ColliderType.CIRCLE:
+                    v = self._collision_detection_circle_and_box(
+                        target, self)
+                case ColliderType.LINE:
+                    v = self._collision_detection_line_and_box(
+                        target, self)
+                case ColliderType.BOX:
+                    v = self._collision_detection_box_and_box(
                         self, target)
             value.join(v)
         return value
@@ -212,7 +359,7 @@ class Player(Obj):
         self.pos = pos
         self.prev_pos = pos.copy()
         self.radius = 5
-        self.speed = 5
+        self.speed = 2
         self.direction = 0
         self.ray_controller = RayController(self.pos, self.direction)
         self.collider = CircleCollider(
@@ -229,6 +376,7 @@ class Player(Obj):
 
     def update(self):
         self.__move()
+        self.__rotate()
         self.__detect_collision()
 
     def draw2d(self):
@@ -251,8 +399,15 @@ class Player(Obj):
 
                 pg.draw.line(screen, color, start, end, 2)
 
+    def __rotate(self):
+        mouse_origin = Vector2(MAP_SIZE[0]*1.5, SCREEN_SIZE[1]/2)
+        mouse_pos = Vector2(*pg.mouse.get_pos())
+        d = mouse_pos.x-mouse_origin.x
+        self.direction += d/10
+        pg.mouse.set_pos(tuple(mouse_origin))
+
     def __move(self):
-        """WASD移動 QE回転"""
+        """WASD移動"""
         force = Vector2(0)
         pressed = pg.key.get_pressed()
         if pressed[pg.K_w]:
@@ -263,10 +418,6 @@ class Player(Obj):
             force.y += 1
         if pressed[pg.K_d]:
             force.x += 1
-        if pressed[pg.K_q]:
-            self.direction -= 2
-        if pressed[pg.K_e]:
-            self.direction += 2
         if force.length() > 0:
             force.rotate_ip(self.direction)
             self.add_force(force.normalize()*self.speed)
@@ -356,7 +507,7 @@ class RayController:
         self.origin = origin
         self.center_direction = direction
         self.angle_deg = 60
-        self.number_of_rays = 200
+        self.number_of_rays = 100
         self.ray_step = self.angle_deg / (self.number_of_rays-1)
         self.ray_length = 300
         self.__set_direction(direction)
@@ -403,52 +554,92 @@ class RayController:
 
 
 class Wall(Obj):
-    def __init__(self, start: Vector2, end: Vector2):
-        self.start = start
-        self.end = end
-        self.width = 2
-        self.collider = LineCollider(self, self.start, self.end, [Tag.WALL])
+    @overload
+    def __init__(self, start: Vector2, end: Vector2): ...
+    @overload
+    def __init__(self, pos: Vector2, width: float, height: float): ...
+
+    def __init__(self, *args):
+        self.wall_type: Literal["line", "box"] = "line" if len(
+            args) == 2 else "box"
+        if self.wall_type == "line":
+            self.start = args[0]
+            self.end = args[1]
+            self.width = 2
+            self.collider = LineCollider(
+                self, self.start, self.end, [Tag.WALL])
+        else:
+            self.pos = args[0]
+            self.width = args[1]
+            self.height = args[2]
+            self.collider = BoxCollider(
+                self, self.pos, self.width, self.height, [Tag.WALL])
         super().__init__((255, 255, 255))
 
     def update(self):
         pass
 
     def draw2d(self):
-        pg.draw.line(screen, self.color, self.start, self.end, self.width)
+        match self.wall_type:
+            case "line":
+                pg.draw.line(screen, self.color, self.start,
+                             self.end, self.width)
+            case "box":
+                pg.draw.rect(screen, self.color, [
+                             self.pos.x, self.pos.y, self.width, self.height],
+                             width=1)
 
 
 class Map:
-    def __init__(self, matrix: list[list[Literal["#", " ", "."]]]) -> None:
+    def __init__(self, matrix: list[list[Literal["#", " ", "S", "G"]]]) -> None:
         block_size = (MAP_SIZE[0]//len(matrix[0]), MAP_SIZE[1]//len(matrix))
         self.walls: list[Wall] = []
+        self.start_pos = Vector2(MAP_SIZE[0]//2, MAP_SIZE[1]//2)
         for _y, row in enumerate(matrix):
             for _x, b in enumerate(row):
-                if b != "#":
-                    continue
                 x = block_size[0] * _x
                 y = block_size[1] * _y
-                block = []
-                if _y-1 > 0 and matrix[_y-1][_x] != "#":
-                    block.append(Wall(Vector2(x, y),
-                                      Vector2(x + block_size[0], y)))
-                if _y+1 < len(matrix) and matrix[_y+1][_x] != "#":
-                    block.append(Wall(Vector2(x, y + block_size[1]),
-                                      Vector2(x + block_size[0], y + block_size[1])))
-                if _x-1 > 0 and matrix[_y][_x-1] != "#":
-                    block.append(Wall(Vector2(x, y),
-                                      Vector2(x, y + block_size[1])))
-                if _x+1 < len(matrix[_y]) and matrix[_y][_x+1] != "#":
-                    block.append(Wall(Vector2(x + block_size[0], y),
-                                      Vector2(x + block_size[0], y + block_size[1])))
-                self.walls += block
+                if b == "S":
+                    self.start_pos = Vector2(
+                        x+block_size[0]//2, y+block_size[1]//2)
+                if b != "#":
+                    continue
+                self.walls.append(Wall(Vector2(x, y), *block_size))
+
+    @classmethod
+    def create_maze(cls, width: int, height: int):
+        sys.setrecursionlimit(10**6)
+        matrix = [["#"]*(width+1) for _ in range(height+1)]
+
+        matrix[1][1] = " "  # 初期地点
+        dx = [(1, 2), (-1, -2), (0, 0), (0, 0)]  # x軸のベクトル
+        dy = [(0, 0), (0, 0), (1, 2), (-1, -2)]  # y軸のベクトル
+
+        def make_maze(ny, nx):
+            array = list(range(4))
+            shuffle(array)  # ランダムに行く方向を決める
+            for i in array:
+                if ny+dy[i][1] < 1 or ny+dy[i][1] >= height:  # 周りの壁を越えていたらスルー
+                    continue
+                if nx+dx[i][1] < 1 or nx+dx[i][1] >= width:  # 周りの壁を越えていたらスルー
+                    continue
+                if matrix[ny+dy[i][1]][nx+dx[i][1]] == " ":  # 2つ先のマスがすでに開いていたらスルー
+                    continue
+                for j in range(2):  # 通路を掘る
+                    matrix[ny+dy[i][j]][nx+dx[i][j]] = " "
+                make_maze(ny+dy[i][1], nx+dx[i][1])  # 掘った先のところに移動
+        make_maze(1, 1)
+        matrix[1][1] = "S"
+        matrix[-2][-2] = "G"
+        return cls(matrix)
 
     def draw(self):
         for wall in self.walls:
-            # wall.update()
             wall.draw2d()
 
 
 pg.init()
+pg.mouse.set_visible(False)
 
 # 定数宣言
 MAP_SIZE = (600, 600)
@@ -459,16 +650,10 @@ FPS = 60
 # 変数宣言
 screen = pg.display.set_mode(SCREEN_SIZE)
 clock = pg.time.Clock()
-player = Player(Vector2(MAP_SIZE[0]/2, MAP_SIZE[0]/2))
 
-map_2d = Map([
-    ["#", "#", "#", "#", "#", "#"],
-    ["#", " ", "#", " ", "#", "#"],
-    ["#", " ", " ", " ", " ", "#"],
-    ["#", " ", "#", "#", " ", "#"],
-    ["#", " ", " ", "#", " ", "#"],
-    ["#", "#", "#", "#", "#", "#"],
-])
+
+map_2d = Map.create_maze(10, 10)
+player = Player(map_2d.start_pos.copy())
 
 
 def mainloop():
@@ -488,6 +673,10 @@ while True:
         if event.type == pg.QUIT:
             pg.quit()
             sys.exit()
+        if event.type == pg.KEYDOWN:
+            if event.key == pg.K_ESCAPE:
+                pg.quit()
+                sys.exit()
     mainloop()
     pg.display.flip()
     clock.tick(FPS)
