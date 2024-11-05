@@ -602,9 +602,8 @@ class Map:
                 if b == "S":
                     self.start_pos = Vector2(
                         x+block_size[0]//2, y+block_size[1]//2)
-                if b != "#":
-                    continue
-                self.walls.append(Wall(Vector2(x, y), *block_size))
+                if b == "#":
+                    self.walls.append(Wall(Vector2(x, y), *block_size))
 
     @classmethod
     def create_maze(cls, width: int, height: int):
