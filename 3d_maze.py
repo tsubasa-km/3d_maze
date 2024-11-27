@@ -14,7 +14,7 @@ from pprint import pprint
 class Config:
     FPS = 60
     MAP_SIZE = (700, 700)
-    MAZE_SIZE = (30, 30)
+    MAZE_SIZE = (10, 10)
 
     class Player:
         SPEED = 2
@@ -33,6 +33,7 @@ class Config:
 
     class Wall:
         COLOR = (255, 255, 255)
+        IS_SOLID = False
         HEIGHT = 1  # ~4
 
 
@@ -41,6 +42,7 @@ class Tag(Enum):
     PLAYER = auto()
     WALL = auto()
     RAY = auto()
+    GOAL = auto()
 
 
 class ColliderType(Enum):
@@ -184,7 +186,7 @@ class Collider(ABC):
             collided_point = vecC1C2.normalize()*vecC1C2.length()/2
             dto = CollisionDTO(True)
             dto.add_collided_target(collided_target, collided_point)
-            return
+            return dto
         return CollisionDTO(False)
 
     def _collision_detection_circle_and_box(self, circle: "CircleCollider", box: "BoxCollider"):
@@ -485,6 +487,15 @@ class Player(Obj):
         if self.pos.y > MAP_SIZE[1]:
             self.pos.y = MAP_SIZE[1]
 
+        # ゴールに到達した時
+        if self.collider.detect_collision([Tag.GOAL]).is_collided:
+            self.__goal()
+
+    def __goal(self):
+        text = pg.font.Font(None, 100).render("GOAL", True, (255, 0, 0))
+        screen.blit(text, (SCREEN_SIZE[0]//2 - text.get_width() //
+                    2, SCREEN_SIZE[1]//2 - text.get_height()//2))
+
 
 class Ray(Obj):
     def __init__(self, origin: Vector2, direction: int | float, length: int | float, targets_tags: tuple[str]):
@@ -624,7 +635,7 @@ class Wall(Obj):
             case "box":
                 pg.draw.rect(screen, self.color, [
                              self.pos.x, self.pos.y, self.w, self.h],
-                             width=1)
+                             width=1 if Config.Wall.IS_SOLID else 0)
 
 
 class Map:
@@ -645,12 +656,15 @@ class Map:
             for _x, b in enumerate(row):
                 x = block_size[0] * _x
                 y = block_size[1] * _y
-                if b == "S":
-                    self.start_pos = Vector2(
-                        x+block_size[0]//2, y+block_size[1]//2)
-                if b == "#":
-                    create_joined_wall(row, _x, _y)
-                    # self.walls.append(Wall(Vector2(x, y), *block_size))
+                match b:
+                    case "S":
+                        self.start_pos = Vector2(
+                            x+block_size[0]//2, y+block_size[1]//2)
+                    case "G":
+                        CircleCollider(self, Vector2(x+block_size[0]//2, y+block_size[1]//2),
+                                       5, [Tag.GOAL])
+                    case "#":
+                        create_joined_wall(row, _x, _y)
 
     @classmethod
     def create_maze(cls, width: int, height: int):
