@@ -11,6 +11,31 @@ from copy import deepcopy
 from pprint import pprint
 
 
+class Config:
+    FPS = 60
+    MAP_SIZE = (700, 700)
+    MAZE_SIZE = (30, 30)
+
+    class Player:
+        SPEED = 2
+        ROTATE_SPEED = 10
+        RADIUS = 5
+        COLOR = (255, 255, 0)
+
+    class Ray:
+        IS_VISIBLE = True
+        SHOW_DIRECTION_ONLY = True
+        COLOR = (255, 255, 0)
+        LENGTH = 100
+        NUMBER = 100
+        ANGLE = 60
+        HIT_COLOR = (255, 0, 0)
+
+    class Wall:
+        COLOR = (255, 255, 255)
+        HEIGHT = 1  # ~4
+
+
 class Tag(Enum):
     """当たり判定のタググループ"""
     PLAYER = auto()
@@ -50,6 +75,7 @@ class CollisionDTO:
 class Collider(ABC):
     # タグごとにコライダーを管理
     _colliders: dict[Tag, list[Type["Collider"]]] = {}
+    parent_obj: "Obj"
 
     @classmethod
     def _get_collider_group(cls, tags: list[Tag]) -> list[type["Collider"]]:
@@ -219,7 +245,11 @@ class Collider(ABC):
         ]
         value = CollisionDTO(False)
         for side_line in box_line_colliders:
-            dto = side_line._collision_detection_line_and_line(side_line, line)
+            if self is line:
+                dto = line._collision_detection_line_and_line(side_line, line)
+            else:
+                dto = side_line._collision_detection_line_and_line(
+                    side_line, line)
             value.join(dto)
         return value
 
@@ -364,7 +394,7 @@ class Player(Obj):
         self.ray_controller = RayController(self.pos, self.direction)
         self.collider = CircleCollider(
             self, self.pos, self.radius, [Tag.PLAYER])
-        super().__init__((255, 255, 0))
+        super().__init__(Config.Player.COLOR)
 
     def add_force(self, force):
         self.prev_pos = self.pos.copy()
@@ -380,7 +410,8 @@ class Player(Obj):
         self.__detect_collision()
 
     def draw2d(self):
-        self.ray_controller.draw2d()
+        if Config.Ray.IS_VISIBLE:
+            self.ray_controller.draw2d()
         pg.draw.circle(screen, self.color, self.pos, self.radius)
 
     def draw_fpv(self):
@@ -389,9 +420,10 @@ class Player(Obj):
             if ray.collision_dto.is_collided:
                 raito = ray.length/ray.max_length
                 if raito != 0:
-                    height = min(600, 500/(10*raito))
+                    height = min(
+                        SCREEN_SIZE[1], SCREEN_SIZE[1]*ray.collision_dto.targets[0].collider.parent_obj.height/(10*raito))
                 else:
-                    height = 600
+                    height = SCREEN_SIZE[1]
                 start = (MAP_SIZE[0]+i*(SCREEN_SIZE[0]-MAP_SIZE[0])/self.ray_controller.number_of_rays,
                          SCREEN_SIZE[1]/2-height/2)
                 end = (start[0], SCREEN_SIZE[1]-start[1])
@@ -403,7 +435,7 @@ class Player(Obj):
         mouse_origin = Vector2(MAP_SIZE[0]*1.5, SCREEN_SIZE[1]/2)
         mouse_pos = Vector2(*pg.mouse.get_pos())
         d = mouse_pos.x-mouse_origin.x
-        self.direction += d/10
+        self.direction += d/Config.Player.ROTATE_SPEED
         pg.mouse.set_pos(tuple(mouse_origin))
 
     def __move(self):
@@ -464,7 +496,7 @@ class Ray(Obj):
         self.collider = LineCollider(
             self, self.origin, self.get_end_pos(), [Tag.RAY])
         self.collision_dto: CollisionDTO = CollisionDTO(False)
-        super().__init__((255, 255, 0))
+        super().__init__(Config.Ray.COLOR)
 
     def get_end_pos(self) -> Vector2:
         return Vector2(
@@ -499,17 +531,17 @@ class Ray(Obj):
     def draw2d(self):
         pg.draw.line(screen, self.color, self.origin, self.get_end_pos())
         for target in self.collision_dto.targets:
-            pg.draw.circle(screen, (255, 0, 0), target.point, 2)
+            pg.draw.circle(screen, Config.Ray.HIT_COLOR, target.point, 2)
 
 
 class RayController:
     def __init__(self, origin: Vector2, direction: int | float):
         self.origin = origin
         self.center_direction = direction
-        self.angle_deg = 60
-        self.number_of_rays = 100
+        self.angle_deg = Config.Ray.ANGLE
+        self.number_of_rays = Config.Ray.NUMBER
         self.ray_step = self.angle_deg / (self.number_of_rays-1)
-        self.ray_length = 300
+        self.ray_length = Config.Ray.LENGTH
         self.__set_direction(direction)
 
     def __set_direction(self, direction: int | float):
@@ -527,9 +559,11 @@ class RayController:
             ray.update(direction-self.angle_deg/2 + self.ray_step * i)
 
     def draw2d(self):
-        for ray in self.rays:
-            ray.draw2d()
-        # self.__draw_direction()
+        if Config.Ray.SHOW_DIRECTION_ONLY:
+            self.__draw_direction()
+        else:
+            for ray in self.rays:
+                ray.draw2d()
 
     def __draw_direction(self):
         """向いている方向を表示"""
@@ -555,26 +589,29 @@ class RayController:
 
 class Wall(Obj):
     @overload
-    def __init__(self, start: Vector2, end: Vector2): ...
+    def __init__(self, pos: Vector2, width: float, height: float):
+        """Create a wall with a box shape"""
     @overload
-    def __init__(self, pos: Vector2, width: float, height: float): ...
+    def __init__(self, start: Vector2, end: Vector2):
+        """Create a wall with a line shape"""
 
     def __init__(self, *args):
         self.wall_type: Literal["line", "box"] = "line" if len(
             args) == 2 else "box"
+        self.height = Config.Wall.HEIGHT
         if self.wall_type == "line":
             self.start = args[0]
             self.end = args[1]
-            self.width = 2
+            self.w = 2
             self.collider = LineCollider(
                 self, self.start, self.end, [Tag.WALL])
         else:
             self.pos = args[0]
-            self.width = args[1]
-            self.height = args[2]
+            self.w = args[1]
+            self.h = args[2]
             self.collider = BoxCollider(
-                self, self.pos, self.width, self.height, [Tag.WALL])
-        super().__init__((255, 255, 255))
+                self, self.pos, self.w, self.h, [Tag.WALL])
+        super().__init__(Config.Wall.COLOR)
 
     def update(self):
         pass
@@ -583,10 +620,10 @@ class Wall(Obj):
         match self.wall_type:
             case "line":
                 pg.draw.line(screen, self.color, self.start,
-                             self.end, self.width)
+                             self.end, self.w)
             case "box":
                 pg.draw.rect(screen, self.color, [
-                             self.pos.x, self.pos.y, self.width, self.height],
+                             self.pos.x, self.pos.y, self.w, self.h],
                              width=1)
 
 
@@ -595,6 +632,15 @@ class Map:
         block_size = (MAP_SIZE[0]//len(matrix[0]), MAP_SIZE[1]//len(matrix))
         self.walls: list[Wall] = []
         self.start_pos = Vector2(MAP_SIZE[0]//2, MAP_SIZE[1]//2)
+
+        def create_joined_wall(row, idx, y):
+            if idx == 0 or row[idx-1] != "#":
+                n = 1
+                while len(row) > idx+n and row[idx+n] == "#":
+                    n += 1
+                self.walls.append(Wall(Vector2(block_size[0]*idx, block_size[1]*y),
+                                       block_size[0]*n, block_size[1]))
+
         for _y, row in enumerate(matrix):
             for _x, b in enumerate(row):
                 x = block_size[0] * _x
@@ -603,7 +649,8 @@ class Map:
                     self.start_pos = Vector2(
                         x+block_size[0]//2, y+block_size[1]//2)
                 if b == "#":
-                    self.walls.append(Wall(Vector2(x, y), *block_size))
+                    create_joined_wall(row, _x, _y)
+                    # self.walls.append(Wall(Vector2(x, y), *block_size))
 
     @classmethod
     def create_maze(cls, width: int, height: int):
@@ -641,9 +688,9 @@ pg.init()
 pg.mouse.set_visible(False)
 
 # 定数宣言
-MAP_SIZE = (600, 600)
+MAP_SIZE = Config.MAP_SIZE
 SCREEN_SIZE = MAP_SIZE[0]*2, MAP_SIZE[1]
-FPS = 60
+FPS = Config.FPS
 
 
 # 変数宣言
@@ -651,7 +698,7 @@ screen = pg.display.set_mode(SCREEN_SIZE)
 clock = pg.time.Clock()
 
 
-map_2d = Map.create_maze(10, 10)
+map_2d = Map.create_maze(*Config.MAZE_SIZE)
 player = Player(map_2d.start_pos.copy())
 
 
