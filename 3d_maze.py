@@ -13,8 +13,8 @@ from pprint import pprint
 
 class Config:
     FPS = 60
-    MAP_SIZE = (700, 700)
-    MAZE_SIZE = (10, 10)
+    MAP_SIZE = (700,)*2
+    MAZE_SIZE = (20,)*2
 
     class Player:
         SPEED = 2
