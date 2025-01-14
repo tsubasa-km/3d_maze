@@ -14,13 +14,16 @@ from pprint import pprint
 class Config:
     FPS = 60
     MAP_SIZE = (700,)*2
-    MAZE_SIZE = (20,)*2
+    MAZE_SIZE = (6,)*2
 
     class Player:
         SPEED = 2
         ROTATE_SPEED = 10
         RADIUS = 5
         COLOR = (255, 255, 0)
+
+    class Orb:
+        COLOR = (0, 255, 0)
 
     class Ray:
         IS_VISIBLE = True
@@ -495,6 +498,26 @@ class Player(Obj):
         text = pg.font.Font(None, 100).render("GOAL", True, (255, 0, 0))
         screen.blit(text, (SCREEN_SIZE[0]//2 - text.get_width() //
                     2, SCREEN_SIZE[1]//2 - text.get_height()//2))
+        pg.display.flip()
+
+
+class Orb(Obj):
+    orbs: list["Orb"] = []
+
+    def __init__(self, pos: Vector2):
+        self.pos = pos
+        self.direction = 0
+        self.radius = 3
+        self.collider = CircleCollider(
+            self, self.pos, self.radius, [Tag.PLAYER])
+        super().__init__(Config.Orb.COLOR)
+        Orb.orbs.append(self)
+
+    def update(self):
+        pass
+
+    def draw2d(self):
+        pg.draw.circle(screen, self.color, self.pos, self.radius)
 
 
 class Ray(Obj):
@@ -643,6 +666,7 @@ class Map:
         block_size = (MAP_SIZE[0]//len(matrix[0]), MAP_SIZE[1]//len(matrix))
         self.walls: list[Wall] = []
         self.start_pos = Vector2(MAP_SIZE[0]//2, MAP_SIZE[1]//2)
+        self.goal_pos: Vector2 = None
 
         def create_joined_wall(row, idx, y):
             if idx == 0 or row[idx-1] != "#":
@@ -661,10 +685,13 @@ class Map:
                         self.start_pos = Vector2(
                             x+block_size[0]//2, y+block_size[1]//2)
                     case "G":
-                        CircleCollider(self, Vector2(x+block_size[0]//2, y+block_size[1]//2),
-                                       5, [Tag.GOAL])
+                        self.goal_pos = Vector2(
+                            x+block_size[0]//2, y+block_size[1]//2)
+                        CircleCollider(self, self.goal_pos, 5, [Tag.GOAL])
                     case "#":
                         create_joined_wall(row, _x, _y)
+                    case _:
+                        Orb(Vector2(x+block_size[0]//2, y+block_size[1]//2))
 
     @classmethod
     def create_maze(cls, width: int, height: int):
@@ -696,6 +723,44 @@ class Map:
     def draw(self):
         for wall in self.walls:
             wall.draw2d()
+        for orb in Orb.orbs:
+            orb.draw2d()
+        font = pg.font.Font(None, 30)
+        goal_text = font.render("G", True, (255, 50, 50))
+        start_text = font.render("S", True, (50, 255, 50))
+        screen.blit(goal_text, (self.goal_pos.x - goal_text.get_width() // 2,
+                                self.goal_pos.y - goal_text.get_height()//2))
+        screen.blit(start_text, (self.start_pos.x - start_text.get_width() // 2,
+                                 self.start_pos.y - start_text.get_height()//2))
+
+
+class Game:
+    def __init__(self):
+        pg.init()
+        pg.mouse.set_visible(False)
+
+        # 定数宣言
+        self.MAP_SIZE = Config.MAP_SIZE
+        self.SCREEN_SIZE = MAP_SIZE[0]*2, MAP_SIZE[1]
+        self.FPS = Config.FPS
+
+        # 変数宣言
+        self.screen = pg.display.set_mode(SCREEN_SIZE)
+        self.clock = pg.time.Clock()
+
+        self.map_2d = Map.create_maze(*Config.MAZE_SIZE)
+        self.player = Player(map_2d.start_pos.copy())
+
+    def mainloop(self):
+        # 上視点
+        screen.fill((100, 100, 100), pg.Rect(0, 0, *MAP_SIZE))
+        map_2d.draw()
+        player.update()
+        player.draw2d()
+        # 一人称視点
+        screen.fill((0, 0, 0), pg.Rect(
+            MAP_SIZE[0], 0, SCREEN_SIZE[0], SCREEN_SIZE[1]))
+        player.draw_fpv()
 
 
 pg.init()
