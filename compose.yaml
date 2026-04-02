@@ -4,8 +4,12 @@ services:
     image: 3d-maze:dev
     environment:
       DISPLAY: ${DISPLAY}
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY}
+      XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR}
+      PULSE_SERVER: ${PULSE_SERVER}
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg
       - ./3d_maze.py:/app/3d_maze.py
     command: >-
       uv run watchfiles

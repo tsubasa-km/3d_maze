@@ -437,11 +437,11 @@ class Player(Obj):
                 pg.draw.line(screen, color, start, end, 2)
 
     def __rotate(self):
-        dx, _ = pg.mouse.get_rel()
-        # WSL/X11 環境ではフォーカス復帰時に大きな相対移動値が入ることがあるため無視する
-        if abs(dx) > 200:
-            return
-        self.direction += dx/Config.Player.ROTATE_SPEED
+        mouse_origin = Vector2(MAP_SIZE[0]*1.5, SCREEN_SIZE[1]/2)
+        mouse_pos = Vector2(*pg.mouse.get_pos())
+        d = mouse_pos.x-mouse_origin.x
+        self.direction += d/Config.Player.ROTATE_SPEED
+        pg.mouse.set_pos(tuple(mouse_origin))
 
     def __move(self):
         """WASD移動"""
@@ -747,8 +747,6 @@ class Game:
         # 変数宣言
         self.screen = pg.display.set_mode(SCREEN_SIZE)
         self.clock = pg.time.Clock()
-        pg.event.set_grab(True)
-        pg.mouse.get_rel()
 
         self.map_2d = Map.create_maze(*Config.MAZE_SIZE)
         self.player = Player(map_2d.start_pos.copy())
@@ -777,8 +775,6 @@ FPS = Config.FPS
 # 変数宣言
 screen = pg.display.set_mode(SCREEN_SIZE)
 clock = pg.time.Clock()
-pg.event.set_grab(True)
-pg.mouse.get_rel()
 
 
 map_2d = Map.create_maze(*Config.MAZE_SIZE)
