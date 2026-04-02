@@ -1,0 +1,16 @@
+services:
+  maze:
+    build: .
+    image: 3d-maze:dev
+    environment:
+      DISPLAY: ${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./3d_maze.py:/app/3d_maze.py
+    command: >-
+      uv run watchfiles
+      --filter python
+      "python 3d_maze.py"
+      /app/3d_maze.py
+    tty: true
+    stdin_open: true
